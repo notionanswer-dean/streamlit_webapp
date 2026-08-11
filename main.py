@@ -26,6 +26,9 @@ RENAME_MAP = {
     "당월_매출_건수": "분기거래건수",
 }
 
+DEFAULT_AREA_TYPES = ["골목상권", "전통시장"]
+TOP_N_DEFAULT_CATEGORIES = 5
+
 st.set_page_config(
     page_title="서울시 상권분석 대시보드",
     page_icon="🏙️",
@@ -34,7 +37,7 @@ st.set_page_config(
 
 
 # ─────────────────────────────────────────────────────────────
-# 데이터 파일 찾기
+# 데이터 파일 찾기 / 불러오기
 # ─────────────────────────────────────────────────────────────
 def find_csv(base_dir: Path, wanted: str) -> Path | None:
     """
@@ -62,6 +65,18 @@ def load_data(path: Path) -> pd.DataFrame:
     return df.rename(columns=RENAME_MAP)
 
 
+@st.cache_data
+def top_categories(df: pd.DataFrame, n: int) -> list[str]:
+    """전체 기간 기준 매출 상위 n개 업종 (업종 필터의 기본값)"""
+    return (
+        df.groupby("업종")["분기매출액"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(n)
+        .index.tolist()
+    )
+
+
 def quarter_label(code: int) -> str:
     """20241 -> '2024년 1분기'"""
     code = int(code)
@@ -86,33 +101,75 @@ st.title("🏙️ 서울시 상권분석 대시보드")
 st.caption("📊 서울시 상권분석서비스 · 2024년 분기별 추정매출 데이터")
 
 # ─────────────────────────────────────────────────────────────
-# 사이드바 필터 (디폴트: 전체 분기)
+# 사이드바 필터
 # ─────────────────────────────────────────────────────────────
 quarter_codes = sorted(df["기준_년분기_코드"].unique())
-labels = {quarter_label(c): c for c in quarter_codes}
+quarter_map = {quarter_label(c): c for c in quarter_codes}
+
+area_types = sorted(df["상권유형"].unique())
+categories = sorted(df["업종"].unique())
+default_categories = top_categories(df, TOP_N_DEFAULT_CATEGORIES)
 
 with st.sidebar:
-    st.header("🔎 필터")
+    st.header("🔎 데이터 필터")
+
+    # 필터 1: 분기 (기본값 전체)
     selected_labels = st.multiselect(
-        "📅 분기 선택",
-        options=list(labels.keys()),
-        default=list(labels.keys()),
-        help="비우면 전체 분기가 적용됩니다.",
+        "📅 분기",
+        options=list(quarter_map.keys()),
+        default=list(quarter_map.keys()),
+        help="기본값은 전체 분기입니다.",
     )
 
-selected_codes = (
-    [labels[label] for label in selected_labels]
-    if selected_labels
-    else quarter_codes
-)
-filtered = df[df["기준_년분기_코드"].isin(selected_codes)]
+    # 필터 2: 상권유형 (기본값 골목상권 + 전통시장)
+    selected_area_types = st.multiselect(
+        "🏘️ 상권유형",
+        options=area_types,
+        default=[t for t in DEFAULT_AREA_TYPES if t in area_types],
+    )
+
+    # 필터 3: 업종 (기본값 매출 상위 5개)
+    selected_categories = st.multiselect(
+        "🍽️ 업종",
+        options=categories,
+        default=default_categories,
+        help=f"기본값은 전체 기간 매출 상위 {TOP_N_DEFAULT_CATEGORIES}개 업종입니다.",
+    )
+
+# 비어 있는 필터가 있으면 결과가 없으므로 안내 후 중단
+empty = [
+    name
+    for name, values in [
+        ("분기", selected_labels),
+        ("상권유형", selected_area_types),
+        ("업종", selected_categories),
+    ]
+    if not values
+]
+if empty:
+    st.warning(f"⚠️ **{', '.join(empty)}** 필터가 비어 있습니다. 항목을 하나 이상 선택해 주세요.")
+    st.stop()
+
+selected_codes = [quarter_map[label] for label in selected_labels]
+
+filtered = df[
+    df["기준_년분기_코드"].isin(selected_codes)
+    & df["상권유형"].isin(selected_area_types)
+    & df["업종"].isin(selected_categories)
+]
 
 with st.sidebar:
     st.markdown("---")
     st.markdown(
-        f"✅ **{len(selected_codes)}개 분기** 선택 중  \n"
+        f"✅ 분기 **{len(selected_codes)}개** · "
+        f"상권유형 **{len(selected_area_types)}개** · "
+        f"업종 **{len(selected_categories)}개**  \n"
         f"🧾 대상 데이터 **{len(filtered):,}행**"
     )
+
+if filtered.empty:
+    st.info("🔍 선택한 조건에 해당하는 데이터가 없습니다. 필터를 조정해 보세요.")
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────
 # 핵심 지표 4칸
@@ -168,17 +225,22 @@ value_labels = base.mark_text(
     align="left", baseline="middle", dx=6, fontSize=13
 ).encode(text=alt.Text("라벨:N"))
 
-st.altair_chart((bars + value_labels).properties(height=400),
-                use_container_width=True)
+st.altair_chart(
+    (bars + value_labels).properties(height=max(240, 38 * len(top10))),
+    use_container_width=True,
+)
 
-st.caption("💡 선택한 분기의 매출액을 업종별로 합산한 결과입니다.")
+st.caption(
+    f"💡 선택한 조건에서 매출 상위 {len(top10)}개 업종입니다. "
+    "업종 필터를 늘리면 더 많은 업종이 후보에 들어옵니다."
+)
 
 st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────
 # 데이터 미리보기
 # ─────────────────────────────────────────────────────────────
-with st.expander("🔍 선택한 분기 데이터 미리보기 (상위 20행)"):
+with st.expander("🔍 필터 적용 데이터 미리보기 (상위 20행)"):
     preview_cols = [
         "기준_년분기_코드",
         "상권유형",
