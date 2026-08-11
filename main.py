@@ -4,6 +4,7 @@
 - 표준 라이브러리 + streamlit + pandas 만 사용합니다. (추가 설치 불필요)
 """
 
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +14,7 @@ import streamlit as st
 # 기본 설정
 # ─────────────────────────────────────────────────────────────
 CSV_NAME = "서울시_상권분석서비스_샘플.csv"
-DATA_PATH = Path(__file__).parent / CSV_NAME
+BASE_DIR = Path(__file__).parent
 
 RENAME_MAP = {
     "상권_구분_코드_명": "상권유형",
@@ -32,8 +33,28 @@ st.set_page_config(
 
 
 # ─────────────────────────────────────────────────────────────
-# 데이터 로드
+# 데이터 파일 찾기
 # ─────────────────────────────────────────────────────────────
+def find_csv(base_dir: Path, wanted: str) -> Path | None:
+    """
+    한글 파일명은 macOS(NFD)와 다른 환경(NFC)의 표기가 달라
+    문자열 비교가 실패할 수 있습니다. 정규화해서 비교하고,
+    그래도 없으면 폴더 안의 유일한 CSV를 사용합니다.
+    """
+    target = unicodedata.normalize("NFC", wanted)
+
+    csv_files = list(base_dir.glob("*.csv"))
+    for path in csv_files:
+        if unicodedata.normalize("NFC", path.name) == target:
+            return path
+
+    # 이름이 달라도 CSV가 하나뿐이면 그것을 사용
+    if len(csv_files) == 1:
+        return csv_files[0]
+
+    return None
+
+
 @st.cache_data
 def load_data(path: Path) -> pd.DataFrame:
     """CSV를 cp949로 읽고 열 이름을 정리해서 반환합니다."""
@@ -47,14 +68,16 @@ def quarter_label(code: int) -> str:
     return f"{code // 10}년 {code % 10}분기"
 
 
-if not DATA_PATH.exists():
-    st.error(
-        f"🚨 데이터 파일을 찾지 못했습니다.\n\n"
-        f"`{CSV_NAME}` 파일을 `main.py`와 같은 폴더에 넣어 주세요."
-    )
+data_path = find_csv(BASE_DIR, CSV_NAME)
+
+if data_path is None:
+    found = sorted(p.name for p in BASE_DIR.iterdir() if p.is_file())
+    st.error(f"🚨 `{CSV_NAME}` 파일을 찾지 못했습니다.")
+    st.write("현재 폴더에 있는 파일 목록입니다. 이름을 비교해 보세요. 👇")
+    st.code("\n".join(found) if found else "(비어 있음)")
     st.stop()
 
-df = load_data(DATA_PATH)
+df = load_data(data_path)
 
 # ─────────────────────────────────────────────────────────────
 # 헤더
