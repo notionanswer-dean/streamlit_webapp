@@ -1,12 +1,13 @@
 """
 서울시 상권분석 대시보드 (Streamlit)
 - 데이터 파일은 main.py와 같은 폴더에 있어야 합니다.
-- 표준 라이브러리 + streamlit + pandas 만 사용합니다. (추가 설치 불필요)
+- streamlit + pandas + altair 만 사용합니다. (altair는 streamlit 기본 의존성)
 """
 
 import unicodedata
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -48,7 +49,6 @@ def find_csv(base_dir: Path, wanted: str) -> Path | None:
         if unicodedata.normalize("NFC", path.name) == target:
             return path
 
-    # 이름이 달라도 CSV가 하나뿐이면 그것을 사용
     if len(csv_files) == 1:
         return csv_files[0]
 
@@ -100,7 +100,6 @@ with st.sidebar:
         help="비우면 전체 분기가 적용됩니다.",
     )
 
-# 아무것도 선택하지 않으면 전체를 사용
 selected_codes = (
     [labels[label] for label in selected_labels]
     if selected_labels
@@ -118,8 +117,8 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 # 핵심 지표 4칸
 # ─────────────────────────────────────────────────────────────
-total_sales_eok = filtered["분기매출액"].sum() / 1e8  # 억원
-total_count_man = filtered["분기거래건수"].sum() / 1e4  # 만 건
+total_sales_eok = filtered["분기매출액"].sum() / 1e8
+total_count_man = filtered["분기거래건수"].sum() / 1e4
 n_areas = filtered["상권이름"].nunique()
 n_categories = filtered["업종"].nunique()
 
@@ -128,6 +127,51 @@ col1.metric("💰 총 분기 매출액", f"{total_sales_eok:,.0f} 억원")
 col2.metric("🧾 총 분기 거래건수", f"{total_count_man:,.0f} 만 건")
 col3.metric("📍 분석 상권 수", f"{n_areas:,} 곳")
 col4.metric("🍽️ 업종 종류", f"{n_categories:,} 개")
+
+st.markdown("---")
+
+# ─────────────────────────────────────────────────────────────
+# 분기 매출 TOP 10 업종
+# ─────────────────────────────────────────────────────────────
+st.subheader("🏆 분기 매출 TOP 10 업종")
+
+top10 = (
+    filtered.groupby("업종", as_index=False)["분기매출액"]
+    .sum()
+    .sort_values("분기매출액", ascending=False)
+    .head(10)
+)
+top10["매출액_억원"] = top10["분기매출액"] / 1e8
+top10["라벨"] = top10["매출액_억원"].map(lambda v: f"{v:,.0f} 억원")
+
+# 막대 끝 라벨이 잘리지 않도록 x축에 여유를 둡니다
+x_max = float(top10["매출액_억원"].max()) * 1.18
+
+base = alt.Chart(top10).encode(
+    y=alt.Y("업종:N", sort="-x", title=None),
+    x=alt.X(
+        "매출액_억원:Q",
+        title="분기매출액 (억원)",
+        scale=alt.Scale(domain=[0, x_max]),
+        axis=alt.Axis(format=",.0f"),
+    ),
+)
+
+bars = base.mark_bar(cornerRadiusEnd=4, color="#4C78A8").encode(
+    tooltip=[
+        alt.Tooltip("업종:N", title="업종"),
+        alt.Tooltip("매출액_억원:Q", title="매출액(억원)", format=",.0f"),
+    ]
+)
+
+value_labels = base.mark_text(
+    align="left", baseline="middle", dx=6, fontSize=13
+).encode(text=alt.Text("라벨:N"))
+
+st.altair_chart((bars + value_labels).properties(height=400),
+                use_container_width=True)
+
+st.caption("💡 선택한 분기의 매출액을 업종별로 합산한 결과입니다.")
 
 st.markdown("---")
 
