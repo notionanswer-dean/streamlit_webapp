@@ -136,8 +136,24 @@ with st.sidebar:
         help=f"기본값은 전체 기간 매출 상위 {TOP_N_DEFAULT_CATEGORIES}개 업종입니다.",
     )
 
-# 비어 있는 필터가 있으면 결과가 없으므로 안내 후 중단
-empty = [
+# ─────────────────────────────────────────────────────────────
+# 필터 적용 → filtered_data (이후 모든 지표·차트의 기준)
+# ─────────────────────────────────────────────────────────────
+selected_codes = [quarter_map[label] for label in selected_labels]
+
+filtered_data = df[
+    df["기준_년분기_코드"].isin(selected_codes)
+    & df["상권유형"].isin(selected_area_types)
+    & df["업종"].isin(selected_categories)
+]
+
+# 사이드바 맨 아래 현재 데이터 건수
+with st.sidebar:
+    st.markdown("---")
+    st.markdown(f"🧾 **필터링된 데이터: {len(filtered_data):,}건**")
+
+# 필터가 비었거나 결과가 없을 때 안내
+empty_filters = [
     name
     for name, values in [
         ("분기", selected_labels),
@@ -146,38 +162,24 @@ empty = [
     ]
     if not values
 ]
-if empty:
-    st.warning(f"⚠️ **{', '.join(empty)}** 필터가 비어 있습니다. 항목을 하나 이상 선택해 주세요.")
+if empty_filters:
+    st.warning(
+        f"⚠️ **{', '.join(empty_filters)}** 필터가 비어 있습니다. "
+        "항목을 하나 이상 선택해 주세요."
+    )
     st.stop()
 
-selected_codes = [quarter_map[label] for label in selected_labels]
-
-filtered = df[
-    df["기준_년분기_코드"].isin(selected_codes)
-    & df["상권유형"].isin(selected_area_types)
-    & df["업종"].isin(selected_categories)
-]
-
-with st.sidebar:
-    st.markdown("---")
-    st.markdown(
-        f"✅ 분기 **{len(selected_codes)}개** · "
-        f"상권유형 **{len(selected_area_types)}개** · "
-        f"업종 **{len(selected_categories)}개**  \n"
-        f"🧾 대상 데이터 **{len(filtered):,}행**"
-    )
-
-if filtered.empty:
+if filtered_data.empty:
     st.info("🔍 선택한 조건에 해당하는 데이터가 없습니다. 필터를 조정해 보세요.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
-# 핵심 지표 4칸
+# 핵심 지표 4칸 (filtered_data 기준)
 # ─────────────────────────────────────────────────────────────
-total_sales_eok = filtered["분기매출액"].sum() / 1e8
-total_count_man = filtered["분기거래건수"].sum() / 1e4
-n_areas = filtered["상권이름"].nunique()
-n_categories = filtered["업종"].nunique()
+total_sales_eok = filtered_data["분기매출액"].sum() / 1e8
+total_count_man = filtered_data["분기거래건수"].sum() / 1e4
+n_areas = filtered_data["상권이름"].nunique()
+n_categories = filtered_data["업종"].nunique()
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("💰 총 분기 매출액", f"{total_sales_eok:,.0f} 억원")
@@ -188,12 +190,12 @@ col4.metric("🍽️ 업종 종류", f"{n_categories:,} 개")
 st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────
-# 분기 매출 TOP 10 업종
+# 분기 매출 TOP 10 업종 (filtered_data 기준)
 # ─────────────────────────────────────────────────────────────
 st.subheader("🏆 분기 매출 TOP 10 업종")
 
 top10 = (
-    filtered.groupby("업종", as_index=False)["분기매출액"]
+    filtered_data.groupby("업종", as_index=False)["분기매출액"]
     .sum()
     .sort_values("분기매출액", ascending=False)
     .head(10)
@@ -238,7 +240,7 @@ st.caption(
 st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────
-# 데이터 미리보기
+# 데이터 미리보기 (filtered_data 기준)
 # ─────────────────────────────────────────────────────────────
 with st.expander("🔍 필터 적용 데이터 미리보기 (상위 20행)"):
     preview_cols = [
@@ -251,7 +253,7 @@ with st.expander("🔍 필터 적용 데이터 미리보기 (상위 20행)"):
         "분기거래건수",
     ]
     st.dataframe(
-        filtered[preview_cols].head(20),
+        filtered_data[preview_cols].head(20),
         use_container_width=True,
         hide_index=True,
     )
