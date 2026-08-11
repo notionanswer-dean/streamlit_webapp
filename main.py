@@ -90,6 +90,12 @@ def top_categories(df: pd.DataFrame, n: int) -> list[str]:
     )
 
 
+@st.cache_data
+def to_cp949_csv(df: pd.DataFrame) -> bytes:
+    """다운로드용 CSV 바이트 (엑셀에서 바로 열리도록 cp949로 인코딩)"""
+    return df.to_csv(index=False).encode("cp949")
+
+
 def quarter_label(code: int) -> str:
     """20241 -> '2024년 1분기'"""
     code = int(code)
@@ -161,6 +167,25 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"🧾 **필터링된 데이터: {len(filtered_data):,}건**")
 
+    st.download_button(
+        label="⬇️ 데이터 다운로드 (CSV)",
+        data=to_cp949_csv(filtered_data),
+        file_name="filtered_data.csv",
+        mime="text/csv",
+        use_container_width=True,
+        disabled=filtered_data.empty,
+        help="현재 필터가 적용된 데이터를 cp949 인코딩으로 내려받습니다.",
+    )
+
+    st.markdown("---")
+    st.caption(
+        "📌 데이터 출처: "
+        "[서울 열린데이터광장](https://data.seoul.go.kr/)"
+    )
+
+# ─────────────────────────────────────────────────────────────
+# 필터가 비었거나 결과가 없을 때 안내
+# ─────────────────────────────────────────────────────────────
 empty_filters = [
     name
     for name, values in [
@@ -387,3 +412,14 @@ with tab_customer:
             f"**{gender_gap / 1e8:,.0f} 억원** 적습니다. "
             "성별·연령이 확인되지 않은 결제분이 원본 데이터에 포함돼 있기 때문입니다."
         )
+
+# ─────────────────────────────────────────────────────────────
+# 푸터
+# ─────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown(
+    "<p style='text-align:center; color:#8a8a8a; font-size:0.85rem; padding:8px 0;'>"
+    "✨ Made by Dean, with AI support"
+    "</p>",
+    unsafe_allow_html=True,
+)
